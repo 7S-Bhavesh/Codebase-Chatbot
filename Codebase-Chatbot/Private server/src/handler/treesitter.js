@@ -20,12 +20,12 @@ import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 
 // ── Token counting ────────────────────────────────────────────────────────────
 // js-tiktoken uses cl100k_base as a Gemini proxy (no exact match exists).
-let enc = null;
+let enc;
 async function getEncoder() {
-  if (enc) return enc;
+  if (enc !== undefined) return enc;
   try {
-    const { get_encoding } = await import('js-tiktoken');
-    enc = get_encoding('cl100k_base');
+    const { getEncoding } = await import('js-tiktoken');
+    enc = getEncoding('cl100k_base');
   } catch {
     enc = null; // count chars/4 as fallback
   }
@@ -155,9 +155,16 @@ function collectUnits(node, unitTypes, results = []) {
  * line numbers by counting newlines in the prefix before each chunk.
  */
 async function chunkText(text, fileStartLine, chunkSize = 800, chunkOverlap = 150, language = null) {
-  const splitter = language
-    ? RecursiveCharacterTextSplitter.fromLanguage(language, { chunkSize, chunkOverlap })
-    : new RecursiveCharacterTextSplitter({ chunkSize, chunkOverlap });
+  // Parser grammar names are not the same as LangChain's splitter names.
+  const splitterLanguage = { ts: 'js', c: 'cpp', csharp: null }[language] ?? (language === 'csharp' ? null : language);
+  let splitter;
+  try {
+    splitter = splitterLanguage
+      ? RecursiveCharacterTextSplitter.fromLanguage(splitterLanguage, { chunkSize, chunkOverlap })
+      : new RecursiveCharacterTextSplitter({ chunkSize, chunkOverlap });
+  } catch {
+    splitter = new RecursiveCharacterTextSplitter({ chunkSize, chunkOverlap });
+  }
 
   const docs = await splitter.createDocuments([text]);
 
@@ -167,7 +174,7 @@ async function chunkText(text, fileStartLine, chunkSize = 800, chunkOverlap = 15
     const chunkText = doc.pageContent;
     const idx = text.indexOf(chunkText, searchOffset);
     const prefix = idx >= 0 ? text.slice(0, idx) : '';
-    searchOffset = idx >= 0 ? idx + chunkText.length : searchOffset;
+    searchOffset = idx >= 0 ? idx + 1 : searchOffset;
 
     const linesInPrefix = (prefix.match(/\n/g) || []).length;
     const linesInChunk  = (chunkText.match(/\n/g) || []).length;

@@ -11,15 +11,7 @@ const COLLECTION_NAME = 'RepoCodeChunk';
  */
 export async function ensureSchema() {
   try {
-    const exists = await client.collections.exists(COLLECTION_NAME);
-    if (exists) {
-      console.log(`[schema] Collection "${COLLECTION_NAME}" already exists — skipping creation.`);
-      return;
-    }
-
-    console.log(`[schema] Creating collection "${COLLECTION_NAME}" ...`);
-
-    await client.collections.create({
+    const schema = {
       name: COLLECTION_NAME,
 
       // JinaAI vectoriser (same key header already configured in the client)
@@ -122,11 +114,26 @@ export async function ensureSchema() {
           description: 'The actual code/text content of this chunk — vectorised + BM25 indexed',
         },
       ],
-    });
+    };
+
+    if (await client.collections.exists(COLLECTION_NAME)) {
+      const collection = client.collections.use(COLLECTION_NAME);
+      const current = await collection.config.get();
+      const existing = new Set(current.properties.map(property => property.name));
+      for (const property of schema.properties) {
+        if (!existing.has(property.name)) {
+          await collection.config.addProperty(property);
+          console.log(`[schema] Added missing property "${property.name}".`);
+        }
+      }
+      return;
+    }
+
+    await client.collections.create(schema);
 
     console.log(`[schema] Collection "${COLLECTION_NAME}" created successfully.`);
   } catch (err) {
-    // Non-fatal: log and continue — query will still work if schema pre-exists.
     console.error('[schema] ensureSchema error:', err.message || err);
+    throw err;
   }
 }

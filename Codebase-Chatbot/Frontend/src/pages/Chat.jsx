@@ -1,50 +1,33 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { chatAPI, promptAPI } from '../services/api';
 import Navbar from '../components/Navbar';
+import { useChatMessages } from '../hooks/useChatMessages';
 
 export default function Chat() {
   const { repoId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const { messages, loadingHistory, historyError, addPending, acceptPrompt, failPending } = useChatMessages(activeChatId);
   const [expandedSources, setExpandedSources] = useState({});
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [loadingChats, setLoadingChats] = useState(false);
-  const pollingIntervalRef = useRef(null);
-  const pollingTimeoutRef = useRef(null);
+  const selectedChatRef = useRef(activeChatId);
+  const sendingRef = useRef(false);
+  const messagesEndRef = useRef(null);
+  selectedChatRef.current = activeChatId;
+  const loading = sending || loadingHistory || messages.some(message => message.status === 'processing');
+  const lastMessage = messages.at(-1);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages.length, lastMessage?.content, lastMessage?.stage]);
 
   useEffect(() => {
-    if (repoId) {
-      loadChats();
-    }
+    setActiveChatId(null);
+    if (repoId) loadChats();
   }, [repoId]);
-
-  useEffect(() => {
-    if (activeChatId && activeChatId !== -1) {
-      loadMessages();
-    } else {
-      setMessages([]);
-    }
-  }, [activeChatId]);
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-      if (pollingTimeoutRef.current) {
-        clearTimeout(pollingTimeoutRef.current);
-        pollingTimeoutRef.current = null;
-      }
-    };
-  }, []);
 
   const loadChats = async () => {
     setLoadingChats(true);
@@ -59,179 +42,40 @@ export default function Chat() {
     }
   };
 
-  const loadMessages = async () => {
-    if (!activeChatId || activeChatId === -1) return;
-    try {
-      const prompts = await promptAPI.getPrompts(activeChatId);
-      if (Array.isArray(prompts)) {
-        const formattedMessages = prompts.flatMap(prompt => [
-          { id: `prompt-${prompt.prompt_id}`, role: 'user', content: prompt.prompt },
-          ...(prompt.response ? [{
-            id: `response-${prompt.prompt_id}`,
-            role: 'assistant',
-            content: prompt.response,
-            sources: prompt.sources ?? [],
-            low_confidence: prompt.low_confidence ?? false,
-          }] : [])
-        ]);
-        setMessages(formattedMessages);
-      }
-    } catch (error) {
-      console.error('Failed to load messages:', error);
-      setMessages([]);
-    }
-  };
-
   const handleNewChat = () => {
-    setActiveChatId(-1); // -1 means new chat, will be created when first message is sent
-    setMessages([]);
+    setActiveChatId(-1);
   };
 
   const handleChatClick = (chatId) => {
     setActiveChatId(chatId);
   };
 
-  const pollPromptStatus = async (promptId, responseMessageId) => {
-    try {
-      const status = await promptAPI.getPromptStatus(promptId);
-      
-      if (status.status === 'done' && status.response) {
-        // Stop polling
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        if (pollingTimeoutRef.current) {
-          clearTimeout(pollingTimeoutRef.current);
-          pollingTimeoutRef.current = null;
-        }
-        
-        // Update the message with the response, sources, and confidence flag
-        setMessages(prev => prev.map(msg => 
-          msg.id === responseMessageId 
-            ? {
-                ...msg,
-                content: status.response,
-                sources: status.sources ?? [],
-                low_confidence: status.low_confidence ?? false,
-              }
-            : msg
-        ));
-        setLoading(false);
-      } else if (status.status === 'processing') {
-        // Keep polling, status is still processing
-        return;
-      } else if (status.status === 'error') {
-        // Stop polling on error
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        if (pollingTimeoutRef.current) {
-          clearTimeout(pollingTimeoutRef.current);
-          pollingTimeoutRef.current = null;
-        }
-        setMessages(prev => prev.map(msg => 
-          msg.id === responseMessageId 
-            ? { ...msg, content: 'Error generating response. Please try again.' }
-            : msg
-        ));
-        setLoading(false);
-      }
-    } catch (error) {
-      console.error('Failed to poll prompt status:', error);
-      // Continue polling on network errors
-    }
-  };
-
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!input.trim() || loading) return;
-
-    const userMessage = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content: input.trim(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
+    if (!input.trim() || loading || sendingRef.current) return;
     const currentInput = input.trim();
+    const startingChat = activeChatId;
+    const temporaryId = `sending-${Date.now()}`;
+    sendingRef.current = true;
     setInput('');
-    setLoading(true);
-
+    setSending(true);
+    addPending({ prompt_id: temporaryId, prompt: currentInput, status: 'processing', stage: 'sending' });
     try {
-      const response = await promptAPI.savePrompt(
-        activeChatId === -1 ? -1 : activeChatId,
-        currentInput,
-        parseInt(repoId)
-      );
-
-      // If new chat was created, update activeChatId
-      if (activeChatId === -1 && response.chat_id) {
+      const response = await promptAPI.savePrompt(startingChat, currentInput, Number(repoId));
+      // A response from another chat must not change the currently selected chat.
+      if (selectedChatRef.current === startingChat) {
+        acceptPrompt(temporaryId, { prompt_id: response.prompt_id, prompt: currentInput, status: 'processing', stage: 'queued' }, response.chat_id);
         setActiveChatId(response.chat_id);
-        await loadChats();
       }
-
-      // Add processing message immediately
-      const responseMessageId = `response-${response.prompt_id}`;
-      const processingMessage = {
-        id: responseMessageId,
-        role: 'assistant',
-        content: 'Processing...',
-      };
-      setMessages(prev => [...prev, processingMessage]);
-
-      // Start polling for the response
-      const currentChatId = activeChatId === -1 ? response.chat_id : activeChatId;
-      if (currentChatId) {
-        setActiveChatId(currentChatId);
-      }
-
-      // Clear any existing polling interval and timeout
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-      if (pollingTimeoutRef.current) {
-        clearTimeout(pollingTimeoutRef.current);
-      }
-
-      // Set a maximum polling duration (5 minutes)
-      pollingTimeoutRef.current = setTimeout(() => {
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        setMessages(prev => prev.map(msg => 
-          msg.id === responseMessageId 
-            ? { ...msg, content: 'Request timed out. Please try again.' }
-            : msg
-        ));
-        setLoading(false);
-      }, 5 * 60 * 1000); // 5 minutes
-
-      // Start polling every 2 seconds
-      pollingIntervalRef.current = setInterval(() => {
-        pollPromptStatus(response.prompt_id, responseMessageId);
-      }, 2000);
-
-      // Initial poll immediately
-      pollPromptStatus(response.prompt_id, responseMessageId);
-
+      if (startingChat === -1) await loadChats();
     } catch (error) {
       console.error('Failed to send message:', error);
-      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
-      alert(error.response?.data?.error || 'Failed to send message');
-      setLoading(false);
-      
-      // Clear polling if it was started
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
+      if (selectedChatRef.current === startingChat) {
+        failPending(temporaryId, error.response?.data?.error || 'Could not send your question. Check your connection and try again.');
       }
-      if (pollingTimeoutRef.current) {
-        clearTimeout(pollingTimeoutRef.current);
-        pollingTimeoutRef.current = null;
-      }
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
     }
   };
 
@@ -240,10 +84,10 @@ export default function Chat() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FDFBD4] text-[#38240D] flex flex-col">
+    <div className="h-screen overflow-hidden bg-[#FDFBD4] text-[#38240D] flex flex-col">
       <Navbar />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-64 bg-white border-r border-[#38240D]/10 flex flex-col">
           <div className="p-4 border-b border-[#38240D]/10">
@@ -303,7 +147,7 @@ export default function Chat() {
         </aside>
 
         {/* Main Chat Area */}
-        <main className="flex-1 flex flex-col bg-[#FDFBD4]">
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col bg-[#FDFBD4]">
           {!activeChatId ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
@@ -337,6 +181,7 @@ export default function Chat() {
                   messages.map((message) => (
                     <div
                       key={message.id}
+                      data-testid={message.role === 'assistant' ? 'assistant-message' : 'user-message'}
                       className={`flex gap-4 max-w-3xl ${
                         message.role === 'user' ? 'ml-auto' : 'mr-auto'
                       }`}
@@ -367,6 +212,7 @@ export default function Chat() {
                           <div className="flex-1">
                             <div className="font-medium mb-1 text-sm flex items-center gap-2">
                               {message.role === 'user' ? 'You' : 'Assistant'}
+                              {message.status === 'failed' && <span className="text-xs text-red-700">Request failed</span>}
                               {message.role === 'assistant' && message.low_confidence && (
                                 <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700 border border-amber-300">
                                   ⚠ Low confidence
@@ -374,17 +220,21 @@ export default function Chat() {
                               )}
                             </div>
                             <div className={`whitespace-pre-wrap ${message.role === 'user' ? 'text-[#FDFBD4]' : 'text-[#38240D]'}`}>
-                              {message.content === 'Processing...' ? (
-                                <div className="flex items-center gap-2 text-[#713600]">
+                              {message.status === 'processing' ? (
+                                <div role="status" className="flex items-center gap-2 text-[#713600]">
                                   <div className="w-2 h-2 bg-[#C05800] rounded-full animate-bounce"></div>
                                   <div className="w-2 h-2 bg-[#C05800] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                   <div className="w-2 h-2 bg-[#C05800] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
                                   <span className="ml-2">Processing…</span>
+                                  <span className="text-xs">{{ sending: 'Sending your question', queued: 'Request accepted', retrieval: 'Searching your repository', reranking: 'Ranking relevant code', context: 'Preparing context', generation: 'Writing your answer', retrying: 'AI service busy; retrying' }[message.stage] || ''}</span>
                                 </div>
                               ) : (
                                 message.content
                               )}
                             </div>
+                            {message.status === 'failed' && typeof message.promptId === 'number' && (
+                              <div className="mt-2 text-xs text-[#713600]">Request #{message.promptId}{message.error_code ? ` · ${message.error_code}` : ''}</div>
+                            )}
                             {/* Sources panel — shown for assistant messages that have source metadata */}
                             {message.role === 'assistant' &&
                              message.sources && message.sources.length > 0 &&
@@ -436,8 +286,10 @@ export default function Chat() {
                     </div>
                   ))
                 )}
+                <div ref={messagesEndRef} />
               </div>
 
+              {historyError && <p role="status" className="px-4 py-2 text-sm text-[#713600]">{historyError}</p>}
               {/* Input Area */}
               <div className="border-t border-[#38240D]/10 bg-white p-4">
                 <form onSubmit={handleSendMessage} className="max-w-3xl mx-auto">

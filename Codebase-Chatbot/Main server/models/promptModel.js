@@ -27,6 +27,13 @@ const Prompt = sequelize.define(
     response: {
       type: DataTypes.TEXT,
     },
+    status: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'processing',
+    },
+    stage: { type: DataTypes.STRING, allowNull: true },
+    error_code: { type: DataTypes.STRING, allowNull: true },
     // ── New fields added for the upgraded RAG pipeline ──────────────────────
     /**
      * JSON array of source objects returned by the pipeline.

@@ -1,5 +1,5 @@
-# Use Node 20 (LTS) with build tools for tree-sitter native modules
-FROM node:20-alpine
+# Use Node 22 with build tools for tree-sitter native modules
+FROM node:22-alpine
 
 # Install build dependencies required by tree-sitter native addons
 RUN apk add --no-cache python3 make g++ git

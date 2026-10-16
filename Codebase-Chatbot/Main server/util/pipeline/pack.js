@@ -15,12 +15,12 @@
 /**
  * Token counting: use js-tiktoken if available, else chars/4.
  */
-let _enc = null;
+let _enc;
 async function getEncoder() {
   if (_enc !== undefined) return _enc;
   try {
-    const { get_encoding } = await import('js-tiktoken');
-    _enc = get_encoding('cl100k_base');
+    const { getEncoding } = await import('js-tiktoken');
+    _enc = getEncoding('cl100k_base');
   } catch {
     _enc = null;
   }

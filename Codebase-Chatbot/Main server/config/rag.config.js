@@ -31,7 +31,7 @@ export const RAG_CONFIG = {
    * If top score < ABS_FLOOR the LLM is told retrieval confidence is low.
    * Calibrate by inspecting eval/results_*.json top-1 scores.
    */
-  ABS_FLOOR: 0.1,
+  ABS_FLOOR: -10,
 
   // ── Parent expansion ─────────────────────────────────────────────────────────
   /**
@@ -63,7 +63,7 @@ export const RAG_CONFIG = {
    * Maximum tokens to pack into the context window (prompt side only).
    * Uses cl100k_base token counts as a proxy for Gemini tokenisation.
    */
-  TOKEN_BUDGET: 8000,
+  TOKEN_BUDGET: 2000,
 
   // ── Stage feature flags ───────────────────────────────────────────────────────
   // Set any to false to disable that stage (used for ablation in eval/).

@@ -1,4 +1,5 @@
 import Prompt from "../models/promptModel.js";
+import { promptState } from '../util/promptState.js';
 
 export async function getPromptStatus(req, res) {
   try {
@@ -8,14 +9,18 @@ export async function getPromptStatus(req, res) {
       return res.status(404).json({ status: "not_found" });
     }
 
-    if (!prompt.response) {
-      return res.json({ status: "processing" });
+    const status = promptState(prompt);
+    if (status === 'processing') {
+      return res.json({ status: "processing", stage: prompt.stage, prompt_id: prompt.prompt_id });
     }
 
     // Return answer + new metadata fields so the frontend can render
     // source citations and low-confidence badges.
     res.json({
-      status:         "done",
+      status,
+      prompt_id: prompt.prompt_id,
+      stage: prompt.stage,
+      error_code: prompt.error_code,
       response:       prompt.response,
       sources:        prompt.sources        ?? [],
       low_confidence: prompt.low_confidence ?? false,

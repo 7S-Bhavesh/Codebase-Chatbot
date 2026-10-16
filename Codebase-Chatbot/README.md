@@ -1,5 +1,61 @@
 # Codebase-Chatbot
 
+For copy-and-paste PowerShell startup and restart commands, see
+[SERVER-COMMANDS.md](SERVER-COMMANDS.md).
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the current end-to-end flow, service
+diagram, indexing and RAG stages, data model, and troubleshooting commands.
+Every accepted chat question now writes a detailed request trace under
+`Main server/logs/rag/`, including retrieved code, reranker scores, and the
+exact final Gemini prompt. See [request logging](ARCHITECTURE.md#request-logs).
+
+## Local Docker startup
+
+Start Docker Desktop, then run these commands from the directory containing
+`docker-compose.yml`:
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+Put your credentials in the root `.env` (see `.env.example`). Use `#` for
+comments. `GEMINI_MODEL` selects the model available to your API account.
+The initial build downloads the reranker model and native parser dependencies.
+
+| Service | Local address |
+| --- | --- |
+| Web application | http://localhost:3000 |
+| API | http://localhost:5000 (routes under `/api`) |
+| Reranker health | http://localhost:8001/health |
+| Reranker API documentation | http://localhost:8001/docs |
+| PostgreSQL | `localhost:5432` |
+
+The indexing worker has no HTTP port. Redis and Weaviate use the cloud
+connections configured in `.env`.
+Set `RERANKER_HOST_PORT` to change the reranker's host port. Internally the
+backend connects to `http://reranker:8000` regardless of this host setting.
+
+```powershell
+# Show application logs
+docker compose logs --tail 100 backend private reranker
+# Run a real integration check (uses Gemini/Jina quota)
+docker compose exec backend node scripts/smoke-test.js
+# Stop services while preserving database data
+docker compose stop
+# Start the existing containers again
+docker compose start
+```
+
+The integration check removes its temporary local account and chat records.
+Removing its test vectors also requires the Weaviate API key to have
+`delete_data` permission on `RepoCodeChunk`; otherwise it reports the retained
+test identifiers for cleanup by a database administrator.
+
+PostgreSQL passwords in an existing volume do not change automatically when
+`.env` changes. Update the database role password to match; do not delete the
+volume if you need to preserve its data.
+
 A full-stack AI-powered codebase chatbot application that allows users to chat with their GitHub repositories using Retrieval Augmented Generation (RAG). The system indexes code repositories and provides intelligent answers based on the actual codebase content.
 
 ## 🏗️ Architecture Overview

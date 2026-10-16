@@ -18,6 +18,7 @@ export async function rerank(query, chunks, config) {
 
   const { RERANKER_URL, RERANKER_MODEL } = config;
   const endpoint = `${RERANKER_URL}/rerank`;
+  const started = Date.now();
 
   let scores;
   try {
@@ -39,17 +40,22 @@ export async function rerank(query, chunks, config) {
     }
 
     ({ scores } = await resp.json());
+    if (!Array.isArray(scores) || scores.length !== chunks.length || !scores.every(Number.isFinite)) {
+      throw new Error('Reranker returned invalid or incomplete scores');
+    }
+    console.log(`[rerank] status=ok candidates=${chunks.length} elapsedMs=${Date.now() - started}`);
   } catch (err) {
     console.error('[rerank] Sidecar error — falling back to hybrid scores:', err.message);
     // Graceful degradation: use hybrid score as rerank_score
     return chunks
-      .map(c => ({ ...c, rerank_score: c.hybrid_score }))
+      .map(c => ({ ...c, rerank_score: c.hybrid_score, score_source: 'hybrid_fallback' }))
       .sort((a, b) => b.rerank_score - a.rerank_score);
   }
 
   const ranked = chunks.map((chunk, i) => ({
     ...chunk,
     rerank_score: scores[i] ?? 0,
+    score_source: 'cross_encoder',
   }));
 
   ranked.sort((a, b) => b.rerank_score - a.rerank_score);
