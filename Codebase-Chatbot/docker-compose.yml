@@ -1,0 +1,82 @@
+# version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: codebase-chatbot-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB_NAME:-postgres}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abc@123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USERNAME:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./Main server
+      dockerfile: Dockerfile
+    container_name: codebase-chatbot-backend
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      JWT_SECRET: ${JWT_SECRET:-abcnew}
+      POSTGRES_DB_NAME: ${POSTGRES_DB_NAME:-postgres}
+      POSTGRES_USERNAME: ${POSTGRES_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abc@123}
+      POSTGRES_HOST: postgres
+      FRONTEND_URL: http://localhost:3000
+      WEAVIATE_URL: ${WEAVIATE_URL:-fu6vkaetcipktxnhitk6q.c0.asia-southeast1.gcp.weaviate.cloud}
+      WEAVIATE_API_KEY: ${WEAVIATE_API_KEY:-UGVnUnRRY09xeDFoRnZlV18reFJVd01YRHFDdmxFVUhEby8xNG1WajJFa25ENHRJOThQTVowdHpqMk9JPV92MjAw}
+      JINA_API_KEY: ${JINA_API_KEY:-jina_4231bfe243c04c8f982d450f18cf4a29aAjikdYFy0kDM-abOl8fw_S6n1QE}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-AIzaSyC0E8SD7qvfgY_VDwkHdrpH_22uLpM0mm0}
+      UPSTASH_PASSWORD: ${UPSTASH_PASSWORD:-AakZAAIncDJhNDU0YWE3NzAyZWE0YTZlOTdjZmQ5M2YzODk3ODJmZnAyNDMyODk}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./Main server:/app
+      - /app/node_modules
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:5000/api
+        VITE_BACKEND_URL: http://localhost:5000
+    container_name: codebase-chatbot-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  private:
+    build:
+      context: ./Private server
+      dockerfile: Dockerfile
+    container_name: codebase-chatbot-private
+    environment:
+      NODE_ENV: production
+      WEAVIATE_URL: ${WEAVIATE_URL:-fu6vkaetcipktxnhitk6q.c0.asia-southeast1.gcp.weaviate.cloud}
+      WEAVIATE_API_KEY: ${WEAVIATE_API_KEY:-UGVnUnRRY09xeDFoRnZlV18reFJVd01YRHFDdmxFVUhEby8xNG1WajJFa25ENHRJOThQTVowdHpqMk9JPV92MjAw}
+      JINA_API_KEY: ${JINA_API_KEY:-jina_4231bfe243c04c8f982d450f18cf4a29aAjikdYFy0kDM-abOl8fw_S6n1QE}
+      UPSTASH_PASSWORD: ${UPSTASH_PASSWORD:-AakZAAIncDJhNDU0YWE3NzAyZWE0YTZlOTdjZmQ5M2YzODk3ODJmZnAyNDMyODk}
+    depends_on:
+      - backend
+    volumes:
+      - ./Private server:/app
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
