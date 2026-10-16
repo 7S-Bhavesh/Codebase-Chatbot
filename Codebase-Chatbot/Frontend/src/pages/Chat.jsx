@@ -11,6 +11,7 @@ export default function Chat() {
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [expandedSources, setExpandedSources] = useState({});
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingChats, setLoadingChats] = useState(false);
@@ -65,7 +66,13 @@ export default function Chat() {
       if (Array.isArray(prompts)) {
         const formattedMessages = prompts.flatMap(prompt => [
           { id: `prompt-${prompt.prompt_id}`, role: 'user', content: prompt.prompt },
-          ...(prompt.response ? [{ id: `response-${prompt.prompt_id}`, role: 'assistant', content: prompt.response }] : [])
+          ...(prompt.response ? [{
+            id: `response-${prompt.prompt_id}`,
+            role: 'assistant',
+            content: prompt.response,
+            sources: prompt.sources ?? [],
+            low_confidence: prompt.low_confidence ?? false,
+          }] : [])
         ]);
         setMessages(formattedMessages);
       }
@@ -99,10 +106,15 @@ export default function Chat() {
           pollingTimeoutRef.current = null;
         }
         
-        // Update the message with the response
+        // Update the message with the response, sources, and confidence flag
         setMessages(prev => prev.map(msg => 
           msg.id === responseMessageId 
-            ? { ...msg, content: status.response }
+            ? {
+                ...msg,
+                content: status.response,
+                sources: status.sources ?? [],
+                low_confidence: status.low_confidence ?? false,
+              }
             : msg
         ));
         setLoading(false);
@@ -353,8 +365,13 @@ export default function Chat() {
                             )}
                           </div>
                           <div className="flex-1">
-                            <div className="font-medium mb-1 text-sm">
+                            <div className="font-medium mb-1 text-sm flex items-center gap-2">
                               {message.role === 'user' ? 'You' : 'Assistant'}
+                              {message.role === 'assistant' && message.low_confidence && (
+                                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700 border border-amber-300">
+                                  ⚠ Low confidence
+                                </span>
+                              )}
                             </div>
                             <div className={`whitespace-pre-wrap ${message.role === 'user' ? 'text-[#FDFBD4]' : 'text-[#38240D]'}`}>
                               {message.content === 'Processing...' ? (
@@ -362,12 +379,57 @@ export default function Chat() {
                                   <div className="w-2 h-2 bg-[#C05800] rounded-full animate-bounce"></div>
                                   <div className="w-2 h-2 bg-[#C05800] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                   <div className="w-2 h-2 bg-[#C05800] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-                                  <span className="ml-2">Processing...</span>
+                                  <span className="ml-2">Processing…</span>
                                 </div>
                               ) : (
                                 message.content
                               )}
                             </div>
+                            {/* Sources panel — shown for assistant messages that have source metadata */}
+                            {message.role === 'assistant' &&
+                             message.sources && message.sources.length > 0 &&
+                             message.content !== 'Processing...' && (
+                              <div className="mt-3 border-t border-[#38240D]/10 pt-2">
+                                <button
+                                  onClick={() => setExpandedSources(prev => ({
+                                    ...prev,
+                                    [message.id]: !prev[message.id],
+                                  }))}
+                                  className="flex items-center gap-1 text-xs text-[#713600] hover:text-[#C05800] font-medium transition-colors"
+                                >
+                                  <svg className={`w-3 h-3 transition-transform ${
+                                    expandedSources[message.id] ? 'rotate-90' : ''
+                                  }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                  {message.sources.length} source{message.sources.length !== 1 ? 's' : ''}
+                                </button>
+                                {expandedSources[message.id] && (
+                                  <ul className="mt-2 space-y-1">
+                                    {message.sources.map((src, idx) => (
+                                      <li key={idx} className="flex items-start gap-1.5 text-xs text-[#713600]/80">
+                                        <svg className="w-3 h-3 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <span>
+                                          <span className="font-mono font-medium">{src.file_path}</span>
+                                          {src.start_line != null && (
+                                            <span className="text-[#713600]/60">
+                                              {' '}·{' '}lines {src.start_line}–{src.end_line}
+                                            </span>
+                                          )}
+                                          {src.signature && (
+                                            <span className="text-[#713600]/50 italic">
+                                              {' '}({src.signature.slice(0, 60)}{src.signature.length > 60 ? '…' : ''})
+                                            </span>
+                                          )}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

@@ -2,10 +2,12 @@ import RepoInput from "../models/repoInputModel.js";
 import connection from "../config/bullmq.config.js";
 import { Queue } from 'bullmq';
 
-async function addToQueue(email, repo_url) {
+async function addToQueue(email, repo_url, repo_id) {
   try{
     const queue = new Queue('repo-index-queue', { connection });
-    const job = await queue.add('repo-index', { email, repo_url });
+    // repo_id (integer FK) is now included so the indexer can store it in
+    // Weaviate and later queries can filter by integer instead of URL string.
+    const job = await queue.add('repo-index', { email, repo_url, repo_id });
     //console.log("Data added to queue:", job.data)
   } catch (err) {
     console.error("Add to queue error:", err);
@@ -21,7 +23,7 @@ export async function saveRepoInput(req, res) {
       return res.status(400).json({ error: "Email and repo_url are required" });
     }
     const repoData = await RepoInput.create({ email, repo_url });
-    await addToQueue(email, repo_url);
+    await addToQueue(email, repo_url, repoData.repo_id);
     res.status(201).json(repoData);
   } catch (err) {
     console.error("Save repo input error:", err);

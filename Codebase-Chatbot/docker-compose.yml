@@ -37,6 +37,7 @@ services:
       JINA_API_KEY: ${JINA_API_KEY:-jina_4231bfe243c04c8f982d450f18cf4a29aAjikdYFy0kDM-abOl8fw_S6n1QE}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-AIzaSyC0E8SD7qvfgY_VDwkHdrpH_22uLpM0mm0}
       UPSTASH_PASSWORD: ${UPSTASH_PASSWORD:-AakZAAIncDJhNDU0YWE3NzAyZWE0YTZlOTdjZmQ5M2YzODk3ODJmZnAyNDMyODk}
+      RERANKER_URL: ${RERANKER_URL:-http://reranker:8000}
     ports:
       - "5000:5000"
     depends_on:
@@ -78,5 +79,24 @@ services:
       - ./Private server:/app
     restart: unless-stopped
 
+  reranker:
+    build:
+      context: ./Reranker
+      dockerfile: Dockerfile
+      args:
+        RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+    container_name: codebase-chatbot-reranker
+    environment:
+      RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   postgres_data:
+

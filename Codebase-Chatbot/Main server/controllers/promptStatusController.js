@@ -12,9 +12,13 @@ export async function getPromptStatus(req, res) {
       return res.json({ status: "processing" });
     }
 
+    // Return answer + new metadata fields so the frontend can render
+    // source citations and low-confidence badges.
     res.json({
-      status: "done",
-      response: prompt.response,
+      status:         "done",
+      response:       prompt.response,
+      sources:        prompt.sources        ?? [],
+      low_confidence: prompt.low_confidence ?? false,
     });
   } catch (err) {
     console.error("Prompt status error:", err);

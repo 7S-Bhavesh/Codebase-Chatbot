@@ -1,0 +1,32 @@
+[
+  {
+    "question": "How does the user authentication work? Which function handles login?",
+    "repo_id": 1,
+    "expected_files": ["controllers/authController.js", "middleware/authMiddleware.js"],
+    "expected_functions": ["login", "authMiddleware"]
+  },
+  {
+    "question": "Where is the BullMQ job added to the queue and what data does it contain?",
+    "repo_id": 1,
+    "expected_files": ["controllers/repoInputController.js"],
+    "expected_functions": ["addToQueue", "saveRepoInput"]
+  },
+  {
+    "question": "How are repository files chunked and what metadata is stored per chunk?",
+    "repo_id": 1,
+    "expected_files": ["src/handler/indexer.js", "src/handler/treesitter.js"],
+    "expected_functions": ["indexProcessor", "extractAndChunk"]
+  },
+  {
+    "question": "What is the token budget for context packing and how are chunks selected?",
+    "repo_id": 1,
+    "expected_files": ["util/pipeline/pack.js", "config/rag.config.js"],
+    "expected_functions": ["packAndSort"]
+  },
+  {
+    "question": "How does the frontend poll for LLM responses and what does the status endpoint return?",
+    "repo_id": 1,
+    "expected_files": ["controllers/promptStatusController.js", "src/pages/Chat.jsx"],
+    "expected_functions": ["getPromptStatus", "pollPromptStatus"]
+  }
+]

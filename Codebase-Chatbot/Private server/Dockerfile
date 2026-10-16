@@ -1,21 +1,20 @@
-# Use lightweight Node.js base image
-FROM node:18-alpine
+# Use Node 20 (LTS) with build tools for tree-sitter native modules
+FROM node:20-alpine
+
+# Install build dependencies required by tree-sitter native addons
+RUN apk add --no-cache python3 make g++ git
 
 # Create app directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json first
+# Copy package files first for layer caching
 COPY package*.json ./
 
-# Install dependencies (production only)
+# Install all dependencies including native addons
 RUN npm ci --omit=dev
 
 # Copy the rest of the private server code
 COPY . .
 
-# Expose nothing (internal microservice)
-# EXPOSE 4000   <--- ONLY add if your service needs to expose a port
-
-# Start the private server
-# Change "server.js" to the actual entry file in your Private server folder
+# Start the worker
 CMD ["node", "src/index.js"]

@@ -1,7 +1,6 @@
 import Prompt from "../models/promptModel.js";
 import Chat from "../models/chatModel.js";
 import RepoInput from "../models/repoInputModel.js";
-//import Auth from "../models/authModel.js";
 import { generation } from "../util/ragOutput.js";
 
 export async function savePrompt(req, res) {
@@ -18,14 +17,15 @@ export async function savePrompt(req, res) {
       chat_id = newChat.chat_id;
     }
 
-    
     const newPrompt = await Prompt.create({
       chat_id,
       prompt,
       response: null,
+      sources: null,
+      low_confidence: null,
     });
 
-    // Respond to frontend 
+    // Respond to frontend immediately (fire-and-forget pattern preserved)
     res.status(201).json({
       message: "Prompt received. Processing...",
       prompt_id: newPrompt.prompt_id,
@@ -33,26 +33,38 @@ export async function savePrompt(req, res) {
       status: "processing",
     });
 
-    //  Background job: run generation AFTER response
+    // Background job: run generation AFTER the HTTP response is sent
     process.nextTick(async () => {
       try {
         const repoData = await RepoInput.findOne({ where: { repo_id } });
 
-        const answer = await generation(
+        if (!repoData) {
+          console.error(`[promptController] repo_id ${repo_id} not found`);
+          return;
+        }
+
+        // Pass repo_id (integer) as the primary Weaviate filter.
+        // email + repo_url are passed for backward-compat fallback in ragOutput.js.
+        const result = await generation(
           prompt,
           repoData.email,
-          repoData.repo_url
+          repoData.repo_url,
+          repoData.repo_id,   // ← new: integer FK
         );
 
         await Prompt.update(
-          { response: answer.answer },
+          {
+            response:       result.answer  ?? result.error ?? "Error generating response",
+            sources:        result.sources ?? null,
+            low_confidence: result.low_confidence ?? null,
+          },
           { where: { prompt_id: newPrompt.prompt_id } }
         );
 
-        console.log("LLM generation finished for prompt:", newPrompt.prompt_id);
+        console.log("[promptController] LLM generation finished for prompt:", newPrompt.prompt_id);
 
       } catch (err) {
-        console.error("Background generation error:", err);
+        console.error("[promptController] Background generation error:", err);
       }
     });
 
@@ -70,7 +82,6 @@ export async function getPrompts(req, res) {
     if (!prompts) {
       return res.status(404).json({ error: "Prompts not found" });
     }
-    //console.log(prompts);
     res.status(200).json(prompts);
   } catch (err) {
     console.error("Get prompts error:", err);
